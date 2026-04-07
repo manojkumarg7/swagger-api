@@ -1,0 +1,78 @@
+openapi: 3.0.0
+
+info:
+  title: My API
+  version: 1.0.0
+  description: User API with proper responses and error handling
+
+servers:
+  - url: http://localhost:3000
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Manoj
+
+    Error:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: Error message
+
+paths:
+  /users:
+    get:
+      summary: Get all users
+      description: Fetch all users as an array
+
+      responses:
+        200:
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+              example:
+                - id: 1
+                  name: Manoj|
+                - id: 2
+                  name: Kumar
+                - id: 3
+                  name: Ravi
+                - id: 4
+                  name: Arun
+                - id: 5
+                  name: kavya
+
+        404:
+          description: No users found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                status: 404
+                message: No users found
+
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                status: 500
+                message: Internal server error

@@ -5,13 +5,18 @@ const YAML = require("yamljs");
 // App setup
 
 const app = express();
-const PORT = 3000;
+// const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
 // Swagger setup
 const swaggerDocument = YAML.load("./api.yaml");
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+app.get("/", (req, res) => {
+  res.redirect(302, "/api-docs");
+});
 
 // 🔥 Rich data (array + object + normal fields)
 let users = [

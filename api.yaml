@@ -46,6 +46,22 @@ components:
               type: integer
               example: 560001
 
+        image:
+          type: string
+          format: uri
+          description: Profile photo URL (served from Unsplash CDN)
+          example: https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80
+
+        bio:
+          type: string
+          description: Short profile summary
+          example: Full-stack engineer building APIs and UIs.
+
+        imageCredit:
+          type: string
+          description: Photographer attribution when the image comes from the Unsplash API
+          example: Photo by Alex Doe on Unsplash
+
     Error:
       type: object
       properties:
@@ -80,6 +96,8 @@ paths:
                   address:
                     city: Bangalore
                     pincode: 560001
+                  image: https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80
+                  bio: API designer and Node enthusiast.
 
                 - id: 2
                   name: Kumar
@@ -89,15 +107,8 @@ paths:
                   address:
                     city: Mysore
                     pincode: 570001
-
-                - id: 3
-                  name: Jabez
-                  age: 22
-                  isActive: true
-                  skills: ["Python", "Java"]
-                  address:
-                    city: Delhi
-                    pincode: 110001
+                  image: https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80
+                  bio: Backend engineer focused on Spring services.
 
         404:
           description: No users found
@@ -131,6 +142,8 @@ paths:
               address:
                 city: Delhi
                 pincode: 110001
+              image: https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80
+              bio: Data and Python tooling.
 
       responses:
         201:

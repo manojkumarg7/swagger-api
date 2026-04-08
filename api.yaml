@@ -3,7 +3,7 @@ openapi: 3.0.0
 info:
   title: My API
   version: 1.0.0
-  description: User API with proper responses and error handling
+  description: User API with complex data types
 
 servers:
   - url: http://localhost:3000
@@ -16,9 +16,34 @@ components:
         id:
           type: integer
           example: 1
+
         name:
           type: string
           example: Manoj
+
+        age:
+          type: integer
+          example: 25
+
+        isActive:
+          type: boolean
+          example: true
+
+        skills:
+          type: array
+          items:
+            type: string
+          example: ["Node.js", "React", "MongoDB"]
+
+        address:
+          type: object
+          properties:
+            city:
+              type: string
+              example: Bangalore
+            pincode:
+              type: integer
+              example: 560001
 
     Error:
       type: object
@@ -34,7 +59,7 @@ paths:
   /users:
     get:
       summary: Get all users
-      description: Fetch all users as an array
+      description: Fetch all users with detailed data
 
       responses:
         200:
@@ -47,15 +72,31 @@ paths:
                   $ref: "#/components/schemas/User"
               example:
                 - id: 1
-                  name: Manoj|
+                  name: Manoj
+                  age: 25
+                  isActive: true
+                  skills: ["Node.js", "React"]
+                  address:
+                    city: Bangalore
+                    pincode: 560001
+
                 - id: 2
                   name: Kumar
+                  age: 28
+                  isActive: false
+                  skills: ["Java", "Spring"]
+                  address:
+                    city: Mysore
+                    pincode: 570001
+
                 - id: 3
-                  name: Ravi
-                - id: 4
-                  name: Arun
-                - id: 5
-                  name: kavya
+                  name: Jabez
+                  age: 22
+                  isActive: true
+                  skills: ["Python", "Java"]
+                  address:
+                    city: Delhi
+                    pincode: 110001
 
         404:
           description: No users found
@@ -63,9 +104,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              example:
-                status: 404
-                message: No users found
 
         500:
           description: Server error
@@ -73,6 +111,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              example:
-                status: 500
-                message: Internal server error
+
+  /users:
+    post:
+      summary: Create user
+      description: Add a new user
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/User"
+            example:
+              name: Rahul
+              age: 22
+              isActive: true
+              skills: ["Python"]
+              address:
+                city: Delhi
+                pincode: 110001
+
+      responses:
+        201:
+          description: User created successfully

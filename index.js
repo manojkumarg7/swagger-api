@@ -2,6 +2,8 @@ const express = require("express");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 
+// App setup
+
 const app = express();
 const PORT = 3000;
 

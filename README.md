@@ -42,7 +42,7 @@ The server listens on **port 3000** by default, or the port given by the `PORT` 
 | `http://localhost:3000/`           | Redirects to Swagger UI                                                 |
 | `http://localhost:3000/api-docs`   | Swagger UI (loads `api.yaml`)                                           |
 | `http://localhost:3000/users`      | `GET` — list users; `POST` — create user                                |
-| `http://localhost:3000/users/{id}` | `PUT` — update user; `DELETE` — remove user (`id` is numeric, e.g. `1`) |
+| `http://localhost:3000/users/{id}` | `PUT` / `DELETE` — `{id}` is the user’s MongoDB **`_id`** (24 hex characters, e.g. from `GET /users`) |
 
 ## Environment variables
 
@@ -64,10 +64,12 @@ npm start
 
 ## API overview
 
-- **`GET /users`** — Returns a JSON array of users (`200`), or `404` if the list is empty (not expected under normal startup).
-- **`POST /users`** — Creates a user from a JSON body. **`name` is required**; other fields (`age`, `isActive`, `skills`, `address`, `image`, `bio`, `imageCredit`) are optional. Responds with **`201`** and the new resource. New **`id`** values are **`max(existing id) + 1`**, so they stay unique after **`DELETE`** calls.
-- **`PUT /users/:id`** — Updates the user with that **`id`**. **`name` is required** in the body; the **`id`** in the URL is the one stored (any **`id`** in the body is ignored). **`200`** on success, **`400`** for an invalid id or missing name, **`404`** if the user does not exist.
-- **`DELETE /users/:id`** — Removes the user with that **`id`**. **`204`** with no body on success, **`400`** for an invalid id, **`404`** if the user does not exist.
+- **`GET /users`** — Returns a JSON array of users (`200`), each with **`_id`** (MongoDB ObjectId as a string), or `404` if the list is empty.
+- **`POST /users`** — Creates a user. **`name` is required**; other fields are optional. Responds with **`201`**; MongoDB assigns **`_id`**.
+- **`PUT /users/:id`** — Updates by **`_id`** in the URL (24 hex). **`name` is required** in the JSON body. **`_id` in the body is ignored**. **`200`** / **`400`** / **`404`** as appropriate.
+- **`DELETE /users/:id`** — Deletes by **`_id`**. **`204`** on success, **`400`** if the id is not a valid ObjectId string, **`404`** if not found.
+
+If you previously stored users with a custom numeric **`id`**, drop or migrate the **`users`** collection in Atlas so the new schema (default **`_id` only**) matches your data.
 
 Full request/response shapes and examples live in **`api.yaml`** (try **`/users/{id}`** in Swagger UI).
 

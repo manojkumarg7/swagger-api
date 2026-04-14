@@ -36,7 +36,6 @@ const addressSubSchema = new mongoose.Schema(
 
 const userSchema = new mongoose.Schema(
   {
-    id: { type: Number, required: true, unique: true },
     name: { type: String, required: true },
     age: Number,
     isActive: Boolean,
@@ -46,10 +45,19 @@ const userSchema = new mongoose.Schema(
     bio: String,
     imageCredit: String,
   },
-  { _id: false, versionKey: false },
+  { versionKey: false },
 );
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
+
+/** True if `value` is a 24-char hex string that round-trips as ObjectId */
+function isObjectIdString(value) {
+  return (
+    typeof value === "string" &&
+    mongoose.Types.ObjectId.isValid(value) &&
+    new mongoose.Types.ObjectId(value).toString() === value
+  );
+}
 
 /** Curated Unsplash CDN URLs (no API key). See https://unsplash.com/license */
 const DEFAULT_IMAGES = [
@@ -169,7 +177,7 @@ async function fetchUnsplashPortraits() {
   return Array.isArray(data) ? data : [data];
 }
 
-/** Plain objects: `{ id, name, ... }` for memory or MongoDB insert */
+/** Plain user fields (no _id) for seeding */
 async function buildResolvedSeedUsers() {
   let images = [...DEFAULT_IMAGES];
   let credits = new Array(10).fill(undefined);
@@ -198,7 +206,6 @@ async function buildResolvedSeedUsers() {
   }
 
   return USER_TEMPLATES.map((t, i) => ({
-    id: i + 1,
     ...t,
     image: images[i] ?? DEFAULT_IMAGES[i % DEFAULT_IMAGES.length],
     ...(credits[i] ? { imageCredit: credits[i] } : {}),
@@ -206,7 +213,11 @@ async function buildResolvedSeedUsers() {
 }
 
 async function buildUsersInMemory() {
-  users = await buildResolvedSeedUsers();
+  const base = await buildResolvedSeedUsers();
+  users = base.map((u) => ({
+    ...u,
+    _id: new mongoose.Types.ObjectId(),
+  }));
 }
 
 async function seedMongoIfEmpty() {
@@ -217,17 +228,11 @@ async function seedMongoIfEmpty() {
   console.log(`Seeded ${docs.length} users in MongoDB.`);
 }
 
-async function nextUserId() {
-  if (useMongo) {
-    const last = await User.findOne().sort({ id: -1 }).select("id").lean();
-    return (last?.id ?? 0) + 1;
-  }
-  return users.reduce((max, u) => Math.max(max, u.id ?? 0), 0) + 1;
-}
-
 app.get("/users", async (req, res) => {
   try {
-    const list = useMongo ? await User.find().sort({ id: 1 }).lean() : users;
+    const list = useMongo
+      ? await User.find().sort({ _id: 1 }).lean()
+      : users;
 
     if (list.length === 0) {
       return res.status(404).json({
@@ -257,9 +262,7 @@ app.post("/users", async (req, res) => {
       });
     }
 
-    const id = await nextUserId();
-    const newUser = {
-      id,
+    const payload = {
       name,
       age,
       isActive,
@@ -271,11 +274,15 @@ app.post("/users", async (req, res) => {
     };
 
     if (useMongo) {
-      await User.create(newUser);
-    } else {
-      users.push(newUser);
+      const doc = await User.create(payload);
+      return res.status(201).json(doc.toObject());
     }
 
+    const newUser = {
+      _id: new mongoose.Types.ObjectId(),
+      ...payload,
+    };
+    users.push(newUser);
     res.status(201).json(newUser);
   } catch (error) {
     res.status(500).json({
@@ -287,51 +294,29 @@ app.post("/users", async (req, res) => {
 
 app.put("/users/:id", async (req, res) => {
   try {
-    const id = Number.parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) {
+    const idHex = req.params.id;
+    if (!isObjectIdString(idHex)) {
       return res.status(400).json({
         status: 400,
         message: "Invalid user id",
       });
     }
 
-    const { name, age, isActive, skills, address, image, bio, imageCredit } =
-      req.body;
-
-    if (!name) {
+    if (!req.body.name) {
       return res.status(400).json({
         status: 400,
         message: "Name is required",
       });
     }
 
-    const updated = {
-      id,
-      name,
-      age,
-      isActive,
-      skills,
-      address,
-      image,
-      bio,
-      imageCredit,
-    };
+    const update = { ...req.body };
+    delete update._id;
 
     if (useMongo) {
-      const doc = await User.findOneAndUpdate(
-        { id },
-        {
-          name,
-          age,
-          isActive,
-          skills,
-          address,
-          image,
-          bio,
-          imageCredit,
-        },
-        { new: true, runValidators: true },
-      ).lean();
+      const doc = await User.findByIdAndUpdate(idHex, update, {
+        new: true,
+        runValidators: true,
+      }).lean();
 
       if (!doc) {
         return res.status(404).json({
@@ -343,7 +328,7 @@ app.put("/users/:id", async (req, res) => {
       return res.status(200).json(doc);
     }
 
-    const idx = users.findIndex((u) => u.id === id);
+    const idx = users.findIndex((u) => String(u._id) === idHex);
     if (idx === -1) {
       return res.status(404).json({
         status: 404,
@@ -351,8 +336,15 @@ app.put("/users/:id", async (req, res) => {
       });
     }
 
-    users[idx] = updated;
-    res.status(200).json(updated);
+    users[idx] = {
+      ...users[idx],
+      ...update,
+      _id: users[idx]._id,
+    };
+    res.status(200).json({
+      ...users[idx],
+      _id: users[idx]._id,
+    });
   } catch (error) {
     res.status(500).json({
       status: 500,
@@ -363,8 +355,8 @@ app.put("/users/:id", async (req, res) => {
 
 app.delete("/users/:id", async (req, res) => {
   try {
-    const id = Number.parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) {
+    const idHex = req.params.id;
+    if (!isObjectIdString(idHex)) {
       return res.status(400).json({
         status: 400,
         message: "Invalid user id",
@@ -372,8 +364,8 @@ app.delete("/users/:id", async (req, res) => {
     }
 
     if (useMongo) {
-      const result = await User.deleteOne({ id });
-      if (result.deletedCount === 0) {
+      const deleted = await User.findByIdAndDelete(idHex);
+      if (!deleted) {
         return res.status(404).json({
           status: 404,
           message: "User not found",
@@ -382,7 +374,7 @@ app.delete("/users/:id", async (req, res) => {
       return res.status(204).send();
     }
 
-    const idx = users.findIndex((u) => u.id === id);
+    const idx = users.findIndex((u) => String(u._id) === idHex);
     if (idx === -1) {
       return res.status(404).json({
         status: 404,

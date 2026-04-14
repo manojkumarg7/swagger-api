@@ -10,6 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const useMongo = Boolean(process.env.MONGODB_URI?.trim());
 
+console.log("ENV MONGODB_URI:", process.env.MONGODB_URI ? "EXISTS" : "MISSING");
+
 // CORS: allow all origins by default; set CORS_ORIGINS (comma-separated) to restrict
 const corsMiddleware = process.env.CORS_ORIGINS?.trim()
   ? cors({

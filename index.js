@@ -1,9 +1,13 @@
+require("dotenv").config();
+
 const express = require("express");
+const mongoose = require("mongoose");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const useMongo = Boolean(process.env.MONGODB_URI?.trim());
 
 app.use(express.json());
 
@@ -13,6 +17,28 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.get("/", (req, res) => {
   res.redirect(302, "/api-docs");
 });
+
+const addressSubSchema = new mongoose.Schema(
+  { city: String, pincode: Number },
+  { _id: false },
+);
+
+const userSchema = new mongoose.Schema(
+  {
+    id: { type: Number, required: true, unique: true },
+    name: { type: String, required: true },
+    age: Number,
+    isActive: Boolean,
+    skills: [String],
+    address: addressSubSchema,
+    image: String,
+    bio: String,
+    imageCredit: String,
+  },
+  { _id: false, versionKey: false },
+);
+
+const User = mongoose.models.User || mongoose.model("User", userSchema);
 
 /** Curated Unsplash CDN URLs (no API key). See https://unsplash.com/license */
 const DEFAULT_IMAGES = [
@@ -113,10 +139,6 @@ const USER_TEMPLATES = [
 
 let users = [];
 
-function nextUserId() {
-  return users.reduce((max, u) => Math.max(max, u.id ?? 0), 0) + 1;
-}
-
 async function fetchUnsplashPortraits() {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) return null;
@@ -136,7 +158,8 @@ async function fetchUnsplashPortraits() {
   return Array.isArray(data) ? data : [data];
 }
 
-async function buildUsers() {
+/** Plain objects: `{ id, name, ... }` for memory or MongoDB insert */
+async function buildResolvedSeedUsers() {
   let images = [...DEFAULT_IMAGES];
   let credits = new Array(10).fill(undefined);
 
@@ -163,7 +186,7 @@ async function buildUsers() {
     console.warn("Using default Unsplash CDN URLs:", err.message);
   }
 
-  users = USER_TEMPLATES.map((t, i) => ({
+  return USER_TEMPLATES.map((t, i) => ({
     id: i + 1,
     ...t,
     image: images[i] ?? DEFAULT_IMAGES[i % DEFAULT_IMAGES.length],
@@ -171,16 +194,38 @@ async function buildUsers() {
   }));
 }
 
-app.get("/users", (req, res) => {
+async function buildUsersInMemory() {
+  users = await buildResolvedSeedUsers();
+}
+
+async function seedMongoIfEmpty() {
+  const count = await User.countDocuments();
+  if (count > 0) return;
+  const docs = await buildResolvedSeedUsers();
+  await User.insertMany(docs);
+  console.log(`Seeded ${docs.length} users in MongoDB.`);
+}
+
+async function nextUserId() {
+  if (useMongo) {
+    const last = await User.findOne().sort({ id: -1 }).select("id").lean();
+    return (last?.id ?? 0) + 1;
+  }
+  return users.reduce((max, u) => Math.max(max, u.id ?? 0), 0) + 1;
+}
+
+app.get("/users", async (req, res) => {
   try {
-    if (users.length === 0) {
+    const list = useMongo ? await User.find().sort({ id: 1 }).lean() : users;
+
+    if (list.length === 0) {
       return res.status(404).json({
         status: 404,
         message: "No users found",
       });
     }
 
-    res.status(200).json(users);
+    res.status(200).json(list);
   } catch (error) {
     res.status(500).json({
       status: 500,
@@ -189,7 +234,7 @@ app.get("/users", (req, res) => {
   }
 });
 
-app.post("/users", (req, res) => {
+app.post("/users", async (req, res) => {
   try {
     const { name, age, isActive, skills, address, image, bio, imageCredit } =
       req.body;
@@ -201,8 +246,9 @@ app.post("/users", (req, res) => {
       });
     }
 
+    const id = await nextUserId();
     const newUser = {
-      id: nextUserId(),
+      id,
       name,
       age,
       isActive,
@@ -213,7 +259,11 @@ app.post("/users", (req, res) => {
       imageCredit,
     };
 
-    users.push(newUser);
+    if (useMongo) {
+      await User.create(newUser);
+    } else {
+      users.push(newUser);
+    }
 
     res.status(201).json(newUser);
   } catch (error) {
@@ -224,21 +274,13 @@ app.post("/users", (req, res) => {
   }
 });
 
-app.put("/users/:id", (req, res) => {
+app.put("/users/:id", async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
       return res.status(400).json({
         status: 400,
         message: "Invalid user id",
-      });
-    }
-
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx === -1) {
-      return res.status(404).json({
-        status: 404,
-        message: "User not found",
       });
     }
 
@@ -264,6 +306,40 @@ app.put("/users/:id", (req, res) => {
       imageCredit,
     };
 
+    if (useMongo) {
+      const doc = await User.findOneAndUpdate(
+        { id },
+        {
+          name,
+          age,
+          isActive,
+          skills,
+          address,
+          image,
+          bio,
+          imageCredit,
+        },
+        { new: true, runValidators: true },
+      ).lean();
+
+      if (!doc) {
+        return res.status(404).json({
+          status: 404,
+          message: "User not found",
+        });
+      }
+
+      return res.status(200).json(doc);
+    }
+
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx === -1) {
+      return res.status(404).json({
+        status: 404,
+        message: "User not found",
+      });
+    }
+
     users[idx] = updated;
     res.status(200).json(updated);
   } catch (error) {
@@ -274,7 +350,7 @@ app.put("/users/:id", (req, res) => {
   }
 });
 
-app.delete("/users/:id", (req, res) => {
+app.delete("/users/:id", async (req, res) => {
   try {
     const id = Number.parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -282,6 +358,17 @@ app.delete("/users/:id", (req, res) => {
         status: 400,
         message: "Invalid user id",
       });
+    }
+
+    if (useMongo) {
+      const result = await User.deleteOne({ id });
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          status: 404,
+          message: "User not found",
+        });
+      }
+      return res.status(204).send();
     }
 
     const idx = users.findIndex((u) => u.id === id);
@@ -302,18 +389,31 @@ app.delete("/users/:id", (req, res) => {
   }
 });
 
-buildUsers()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-      if (!process.env.UNSPLASH_ACCESS_KEY) {
-        console.log(
-          "Tip: set UNSPLASH_ACCESS_KEY to fetch fresh portraits from the Unsplash API on startup.",
-        );
-      }
-    });
-  })
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
+async function main() {
+  if (useMongo) {
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log(
+      `Connected to MongoDB (database: ${mongoose.connection.name}).`,
+    );
+    await seedMongoIfEmpty();
+  } else {
+    await buildUsersInMemory();
+    console.log(
+      "Running without MONGODB_URI: users are kept in memory (not persisted).",
+    );
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    if (!process.env.UNSPLASH_ACCESS_KEY) {
+      console.log(
+        "Tip: set UNSPLASH_ACCESS_KEY to fetch fresh portraits from the Unsplash API on startup.",
+      );
+    }
   });
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

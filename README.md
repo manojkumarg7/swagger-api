@@ -7,6 +7,7 @@ A small [Express](https://expressjs.com/) service that exposes a sample **users*
 - **OpenAPI 3** document at `api.yaml` describing the `User` schema and `/users` plus `/users/{id}` operations
 - **Swagger UI** at `/api-docs` to try requests against the same server
 - **Seed data**: ten demo users with nested `address`, `skills`, `bio`, and profile `image` URLs
+- **Optional MongoDB**: if `MONGODB_URI` is set, users are stored with [Mongoose](https://mongoosejs.com/) and the demo list is **inserted only when the collection is empty**; if it is unset, the app keeps the same API but holds users **in memory** (lost when the process exits)
 - **Optional Unsplash**: if `UNSPLASH_ACCESS_KEY` is set, startup fetches portrait photos from the [Unsplash API](https://unsplash.com/documentation); otherwise curated Unsplash CDN URLs are used (no key required)
 
 ## Requirements
@@ -18,6 +19,14 @@ A small [Express](https://expressjs.com/) service that exposes a sample **users*
 ```bash
 npm install
 ```
+
+Copy **`.env.example`** to **`.env`**, set **`MONGODB_URI`** for Atlas (or another MongoDB), and **do not commit** `.env` (it is listed in **`.gitignore`**).
+
+For [MongoDB Atlas](https://www.mongodb.com/docs/atlas/), allow your client IP under **Network Access** (for quick local tests, many teams use `0.0.0.0/0`; tighten this for production). Put your **database user password only in `.env`**, not in source code or chat logs—if a password was exposed, **rotate it** in Atlas and update `.env`.
+
+Use a URI that includes a **database name** before the query string, for example:
+
+`...mongodb.net/mySwaggerApiDb?retryWrites=true&w=majority`
 
 ## Run
 
@@ -38,12 +47,14 @@ The server listens on **port 3000** by default, or the port given by the `PORT` 
 
 | Variable              | Required | Description                                                                                                           |
 | --------------------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`         | No       | MongoDB connection string (e.g. Atlas `mongodb+srv://...`). When unset, users stay in memory only.                    |
 | `PORT`                | No       | HTTP port (default `3000`)                                                                                            |
 | `UNSPLASH_ACCESS_KEY` | No       | Unsplash **Access Key**; when set, random portrait images are loaded on startup and `imageCredit` may be set per user |
 
 ### Example (PowerShell)
 
 ```powershell
+$env:MONGODB_URI = "mongodb+srv://USER:PASSWORD@cluster.example.mongodb.net/mySwaggerApiDb?retryWrites=true&w=majority"
 $env:UNSPLASH_ACCESS_KEY = "your_access_key"
 $env:PORT = "4000"
 npm start
@@ -60,15 +71,18 @@ Full request/response shapes and examples live in **`api.yaml`** (try **`/users/
 
 ## Project layout
 
-| File           | Role                                                       |
-| -------------- | ---------------------------------------------------------- |
-| `index.js`     | Express app, routes, seed user build, Unsplash integration |
-| `api.yaml`     | OpenAPI 3 specification for Swagger UI                     |
-| `package.json` | Dependencies and `npm start` script                        |
+| File           | Role                                                        |
+| -------------- | ----------------------------------------------------------- |
+| `index.js`     | Express app, routes, optional MongoDB, seed users, Unsplash |
+| `api.yaml`     | OpenAPI 3 specification for Swagger UI                      |
+| `package.json` | Dependencies and `npm start` script                         |
+| `.env.example` | Sample environment variables (copy to `.env`)               |
 
 ## Dependencies
 
 - `express` — HTTP server and routing
+- `mongoose` — MongoDB object modeling (used when `MONGODB_URI` is set)
+- `dotenv` — Load `.env` for local configuration
 - `swagger-ui-express` — Host Swagger UI
 - `yamljs` — Load `api.yaml` at runtime
 

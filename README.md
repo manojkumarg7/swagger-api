@@ -8,6 +8,7 @@ A small [Express](https://expressjs.com/) service that exposes a sample **users*
 - **Swagger UI** at `/api-docs` to try requests against the same server
 - **Seed data**: ten demo users with nested `address`, `skills`, `bio`, and profile `image` URLs
 - **Optional MongoDB**: if `MONGODB_URI` is set, users are stored with [Mongoose](https://mongoosejs.com/) and the demo list is **inserted only when the collection is empty**; if it is unset, the app keeps the same API but holds users **in memory** (lost when the process exits)
+- **CORS**: [cors](https://github.com/expressjs/cors) is enabled so browsers can call the API from another origin (e.g. Live Server on `http://127.0.0.1:5500`). By default **all origins** are allowed; set **`CORS_ORIGINS`** (comma-separated) on Render or locally to lock it down.
 - **Optional Unsplash**: if `UNSPLASH_ACCESS_KEY` is set, startup fetches portrait photos from the [Unsplash API](https://unsplash.com/documentation); otherwise curated Unsplash CDN URLs are used (no key required)
 
 ## Requirements
@@ -48,6 +49,7 @@ The server listens on **port 3000** by default, or the port given by the `PORT` 
 | Variable              | Required | Description                                                                                                           |
 | --------------------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
 | `MONGODB_URI`         | No       | MongoDB connection string (e.g. Atlas `mongodb+srv://...`). When unset, users stay in memory only.                    |
+| `CORS_ORIGINS`        | No       | Comma-separated allowed browser origins. When unset, **any** origin is allowed (handy for local frontends).           |
 | `PORT`                | No       | HTTP port (default `3000`)                                                                                            |
 | `UNSPLASH_ACCESS_KEY` | No       | Unsplash **Access Key**; when set, random portrait images are loaded on startup and `imageCredit` may be set per user |
 
@@ -81,6 +83,7 @@ Full request/response shapes and examples live in **`api.yaml`** (try **`/users/
 ## Dependencies
 
 - `express` — HTTP server and routing
+- `cors` — Cross-Origin Resource Sharing for browser clients (e.g. local HTML on port 5500 calling Render)
 - `mongoose` — MongoDB object modeling (used when `MONGODB_URI` is set)
 - `dotenv` — Load `.env` for local configuration
 - `swagger-ui-express` — Host Swagger UI

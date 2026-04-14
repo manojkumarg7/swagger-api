@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const express = require("express");
+const cors = require("cors");
 const mongoose = require("mongoose");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
@@ -9,6 +10,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const useMongo = Boolean(process.env.MONGODB_URI?.trim());
 
+// CORS: allow all origins by default; set CORS_ORIGINS (comma-separated) to restrict
+const corsMiddleware = process.env.CORS_ORIGINS?.trim()
+  ? cors({
+      origin: process.env.CORS_ORIGINS.split(",").map((o) => o.trim()),
+    })
+  : cors();
+
+app.use(corsMiddleware);
 app.use(express.json());
 
 const swaggerDocument = YAML.load("./api.yaml");

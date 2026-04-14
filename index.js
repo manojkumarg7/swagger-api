@@ -113,6 +113,10 @@ const USER_TEMPLATES = [
 
 let users = [];
 
+function nextUserId() {
+  return users.reduce((max, u) => Math.max(max, u.id ?? 0), 0) + 1;
+}
+
 async function fetchUnsplashPortraits() {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) return null;
@@ -198,7 +202,7 @@ app.post("/users", (req, res) => {
     }
 
     const newUser = {
-      id: users.length + 1,
+      id: nextUserId(),
       name,
       age,
       isActive,
@@ -212,6 +216,84 @@ app.post("/users", (req, res) => {
     users.push(newUser);
 
     res.status(201).json(newUser);
+  } catch (error) {
+    res.status(500).json({
+      status: 500,
+      message: "Server error",
+    });
+  }
+});
+
+app.put("/users/:id", (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({
+        status: 400,
+        message: "Invalid user id",
+      });
+    }
+
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx === -1) {
+      return res.status(404).json({
+        status: 404,
+        message: "User not found",
+      });
+    }
+
+    const { name, age, isActive, skills, address, image, bio, imageCredit } =
+      req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        status: 400,
+        message: "Name is required",
+      });
+    }
+
+    const updated = {
+      id,
+      name,
+      age,
+      isActive,
+      skills,
+      address,
+      image,
+      bio,
+      imageCredit,
+    };
+
+    users[idx] = updated;
+    res.status(200).json(updated);
+  } catch (error) {
+    res.status(500).json({
+      status: 500,
+      message: "Server error",
+    });
+  }
+});
+
+app.delete("/users/:id", (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({
+        status: 400,
+        message: "Invalid user id",
+      });
+    }
+
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx === -1) {
+      return res.status(404).json({
+        status: 404,
+        message: "User not found",
+      });
+    }
+
+    users.splice(idx, 1);
+    res.status(204).send();
   } catch (error) {
     res.status(500).json({
       status: 500,

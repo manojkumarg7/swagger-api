@@ -401,9 +401,8 @@ app.delete("/users/:id", async (req, res) => {
 async function main() {
   if (useMongo) {
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log(
-      `Connected to MongoDB (database: ${mongoose.connection.name}).`,
-    );
+    console.log("DB Name:", mongoose.connection.name);
+    console.log("Connected to MongoDB.");
     await seedMongoIfEmpty();
   } else {
     await buildUsersInMemory();

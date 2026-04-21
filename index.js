@@ -230,9 +230,7 @@ async function seedMongoIfEmpty() {
 
 app.get("/users", async (req, res) => {
   try {
-    const list = useMongo
-      ? await User.find().sort({ _id: 1 }).lean()
-      : users;
+    const list = useMongo ? await User.find().sort({ _id: 1 }).lean() : users;
 
     if (list.length === 0) {
       return res.status(404).json({

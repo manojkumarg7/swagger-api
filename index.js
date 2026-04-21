@@ -6,11 +6,182 @@ const mongoose = require("mongoose");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 
+const NODE_ENV = process.env.NODE_ENV || "development";
+const mongoUri = process.env.MONGODB_URI?.trim() || "";
+
+if (NODE_ENV === "production" && !mongoUri) {
+  throw new Error("MONGODB_URI is required when NODE_ENV is production");
+}
+
+const useMongo = Boolean(mongoUri);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-const useMongo = Boolean(process.env.MONGODB_URI?.trim());
 
-console.log("ENV MONGODB_URI:", process.env.MONGODB_URI ? "EXISTS" : "MISSING");
+function sendError(res, statusCode, message, code) {
+  return res.status(statusCode).json({
+    success: false,
+    error: {
+      statusCode,
+      message,
+      ...(code ? { code } : {}),
+    },
+  });
+}
+
+class HttpError extends Error {
+  constructor(statusCode, message, code) {
+    super(message);
+    this.name = "HttpError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+const USER_FIELD_KEYS = [
+  "name",
+  "age",
+  "isActive",
+  "skills",
+  "address",
+  "image",
+  "bio",
+  "imageCredit",
+];
+
+/**
+ * Validates user fields present on `body`.
+ * @param {object} body
+ * @param {{ requireName: boolean }} opts
+ * @returns {{ ok: true, value: object } | { ok: false, message: string }}
+ */
+function validateUserPayload(body, { requireName }) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, message: "Request body must be a JSON object" };
+  }
+
+  const unknown = Object.keys(body).filter(
+    (k) => k !== "_id" && !USER_FIELD_KEYS.includes(k),
+  );
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      message: `Unknown or unsupported fields: ${unknown.join(", ")}`,
+    };
+  }
+
+  const issues = [];
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+
+  if (requireName && (!has("name") || body.name === null || body.name === "")) {
+    issues.push("name is required");
+  }
+
+  if (has("name")) {
+    if (typeof body.name !== "string") {
+      issues.push("name must be a string");
+    } else if (body.name.trim() === "") {
+      issues.push("name must be a non-empty string");
+    }
+  }
+
+  if (has("age")) {
+    if (body.age === null) issues.push("age cannot be null");
+    else if (typeof body.age !== "number" || !Number.isFinite(body.age)) {
+      issues.push("age must be a finite number");
+    }
+  }
+
+  if (has("isActive")) {
+    if (typeof body.isActive !== "boolean") {
+      issues.push("isActive must be a boolean");
+    }
+  }
+
+  if (has("skills")) {
+    if (body.skills === null) issues.push("skills cannot be null");
+    else if (!Array.isArray(body.skills)) {
+      issues.push("skills must be an array");
+    } else if (body.skills.some((s) => typeof s !== "string")) {
+      issues.push("skills must contain only strings");
+    }
+  }
+
+  if (has("address")) {
+    if (body.address === null) issues.push("address cannot be null");
+    else if (typeof body.address !== "object" || Array.isArray(body.address)) {
+      issues.push("address must be an object");
+    } else {
+      const extra = Object.keys(body.address).filter(
+        (k) => !["city", "pincode"].includes(k),
+      );
+      if (extra.length) {
+        issues.push("address only supports city and pincode");
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(body.address, "city") &&
+        body.address.city !== null &&
+        typeof body.address.city !== "string"
+      ) {
+        issues.push("address.city must be a string");
+      }
+      if (Object.prototype.hasOwnProperty.call(body.address, "pincode")) {
+        const p = body.address.pincode;
+        if (p === null) issues.push("address.pincode cannot be null");
+        else if (typeof p !== "number" || !Number.isFinite(p)) {
+          issues.push("address.pincode must be a finite number");
+        }
+      }
+    }
+  }
+
+  for (const key of ["image", "bio", "imageCredit"]) {
+    if (has(key) && body[key] !== null && typeof body[key] !== "string") {
+      issues.push(`${key} must be a string`);
+    }
+  }
+
+  if (issues.length) {
+    return { ok: false, message: issues.join("; ") };
+  }
+
+  const value = {};
+  for (const key of USER_FIELD_KEYS) {
+    if (!has(key)) continue;
+    if (key === "name") {
+      value.name = String(body.name).trim();
+      continue;
+    }
+    value[key] = body[key];
+  }
+  return { ok: true, value };
+}
+
+function errorHandler(err, req, res, next) {
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  if (err instanceof HttpError) {
+    return sendError(res, err.statusCode, err.message, err.code);
+  }
+
+  if (err.name === "ValidationError" && err.errors) {
+    const msg = Object.values(err.errors)
+      .map((e) => e.message)
+      .join("; ");
+    return sendError(res, 400, msg || err.message, "VALIDATION_ERROR");
+  }
+
+  if (err.name === "CastError") {
+    return sendError(res, 400, "Invalid identifier", "CAST_ERROR");
+  }
+
+  console.error("Unhandled error:", err);
+  const message =
+    NODE_ENV === "production" ? "Internal server error" : err.message;
+  return sendError(res, 500, message, "INTERNAL_ERROR");
+}
 
 // CORS: allow all origins by default; set CORS_ORIGINS (comma-separated) to restrict
 const corsMiddleware = process.env.CORS_ORIGINS?.trim()
@@ -27,6 +198,15 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.get("/", (req, res) => {
   res.redirect(302, "/api-docs");
+});
+
+app.get("/health", (req, res) => {
+  const database = useMongo ? "connected" : "memory";
+  res.status(200).json({
+    status: "ok",
+    database,
+    uptime: process.uptime(),
+  });
 });
 
 const addressSubSchema = new mongoose.Schema(
@@ -228,48 +408,28 @@ async function seedMongoIfEmpty() {
   console.log(`Seeded ${docs.length} users in MongoDB.`);
 }
 
-app.get("/users", async (req, res) => {
+app.get("/users", async (req, res, next) => {
   try {
     const list = useMongo ? await User.find().sort({ _id: 1 }).lean() : users;
 
     if (list.length === 0) {
-      return res.status(404).json({
-        status: 404,
-        message: "No users found",
-      });
+      return sendError(res, 404, "No users found", "NOT_FOUND");
     }
 
     res.status(200).json(list);
   } catch (error) {
-    res.status(500).json({
-      status: 500,
-      message: "Server error",
-    });
+    next(error);
   }
 });
 
-app.post("/users", async (req, res) => {
+app.post("/users", async (req, res, next) => {
   try {
-    const { name, age, isActive, skills, address, image, bio, imageCredit } =
-      req.body;
-
-    if (!name) {
-      return res.status(400).json({
-        status: 400,
-        message: "Name is required",
-      });
+    const parsed = validateUserPayload(req.body, { requireName: true });
+    if (!parsed.ok) {
+      return sendError(res, 400, parsed.message, "VALIDATION_ERROR");
     }
 
-    const payload = {
-      name,
-      age,
-      isActive,
-      skills,
-      address,
-      image,
-      bio,
-      imageCredit,
-    };
+    const payload = parsed.value;
 
     if (useMongo) {
       const doc = await User.create(payload);
@@ -283,32 +443,23 @@ app.post("/users", async (req, res) => {
     users.push(newUser);
     res.status(201).json(newUser);
   } catch (error) {
-    res.status(500).json({
-      status: 500,
-      message: "Server error",
-    });
+    next(error);
   }
 });
 
-app.put("/users/:id", async (req, res) => {
+app.put("/users/:id", async (req, res, next) => {
   try {
     const idHex = req.params.id;
     if (!isObjectIdString(idHex)) {
-      return res.status(400).json({
-        status: 400,
-        message: "Invalid user id",
-      });
+      return sendError(res, 400, "Invalid user id", "VALIDATION_ERROR");
     }
 
-    if (!req.body.name) {
-      return res.status(400).json({
-        status: 400,
-        message: "Name is required",
-      });
+    const parsed = validateUserPayload(req.body, { requireName: true });
+    if (!parsed.ok) {
+      return sendError(res, 400, parsed.message, "VALIDATION_ERROR");
     }
 
-    const update = { ...req.body };
-    delete update._id;
+    const update = { ...parsed.value };
 
     if (useMongo) {
       const doc = await User.findByIdAndUpdate(idHex, update, {
@@ -317,10 +468,7 @@ app.put("/users/:id", async (req, res) => {
       }).lean();
 
       if (!doc) {
-        return res.status(404).json({
-          status: 404,
-          message: "User not found",
-        });
+        return sendError(res, 404, "User not found", "NOT_FOUND");
       }
 
       return res.status(200).json(doc);
@@ -328,10 +476,7 @@ app.put("/users/:id", async (req, res) => {
 
     const idx = users.findIndex((u) => String(u._id) === idHex);
     if (idx === -1) {
-      return res.status(404).json({
-        status: 404,
-        message: "User not found",
-      });
+      return sendError(res, 404, "User not found", "NOT_FOUND");
     }
 
     users[idx] = {
@@ -344,67 +489,77 @@ app.put("/users/:id", async (req, res) => {
       _id: users[idx]._id,
     });
   } catch (error) {
-    res.status(500).json({
-      status: 500,
-      message: "Server error",
-    });
+    next(error);
   }
 });
 
-app.delete("/users/:id", async (req, res) => {
+app.delete("/users/:id", async (req, res, next) => {
   try {
     const idHex = req.params.id;
     if (!isObjectIdString(idHex)) {
-      return res.status(400).json({
-        status: 400,
-        message: "Invalid user id",
-      });
+      return sendError(res, 400, "Invalid user id", "VALIDATION_ERROR");
     }
 
     if (useMongo) {
       const deleted = await User.findByIdAndDelete(idHex);
       if (!deleted) {
-        return res.status(404).json({
-          status: 404,
-          message: "User not found",
-        });
+        return sendError(res, 404, "User not found", "NOT_FOUND");
       }
       return res.status(204).send();
     }
 
     const idx = users.findIndex((u) => String(u._id) === idHex);
     if (idx === -1) {
-      return res.status(404).json({
-        status: 404,
-        message: "User not found",
-      });
+      return sendError(res, 404, "User not found", "NOT_FOUND");
     }
 
     users.splice(idx, 1);
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({
-      status: 500,
-      message: "Server error",
-    });
+    next(error);
   }
 });
 
+app.use((req, res) => {
+  sendError(
+    res,
+    404,
+    `Cannot ${req.method} ${req.originalUrl}`,
+    "NOT_FOUND",
+  );
+});
+
+app.use(errorHandler);
+
 async function main() {
   if (useMongo) {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log("DB Name:", mongoose.connection.name);
-    console.log("Connected to MongoDB.");
+    console.log("[database] Storage mode: MongoDB (persistent data)");
+    try {
+      await mongoose.connect(mongoUri);
+      console.log(
+        "[database] MongoDB connection succeeded",
+        JSON.stringify({ database: mongoose.connection.name }),
+      );
+    } catch (err) {
+      console.error(
+        "[database] MongoDB connection failed:",
+        err?.message || err,
+      );
+      throw err;
+    }
     await seedMongoIfEmpty();
   } else {
-    await buildUsersInMemory();
     console.log(
-      "Running without MONGODB_URI: users are kept in memory (not persisted).",
+      "[database] Storage mode: in-memory (not persisted; for local development)",
     );
+    await buildUsersInMemory();
   }
 
   app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`[server] Listening on http://localhost:${PORT}`);
+    console.log(
+      `[server] NODE_ENV=${NODE_ENV}; data store=${useMongo ? "MongoDB" : "in-memory"}`,
+    );
     if (!process.env.UNSPLASH_ACCESS_KEY) {
       console.log(
         "Tip: set UNSPLASH_ACCESS_KEY to fetch fresh portraits from the Unsplash API on startup.",
